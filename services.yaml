@@ -1,0 +1,265 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: blockexplorerd
+  labels:
+    app: blockexplorerd
+spec:
+  ports:
+  - name: "8080"
+    port: 8080
+    targetPort: 8080
+  - name: "8103"
+    port: 8103
+    targetPort: 8100
+  selector:
+    app: blockexplorerd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bootstrapd
+  labels:
+    app: bootstrapd
+spec:
+  ports:
+  - name: "7777"
+    port: 7777
+    targetPort: 7777
+  - name: "8101"
+    port: 8101
+    targetPort: 8100
+  selector:
+    app: bootstrapd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  labels:
+    app: elasticsearch
+spec:
+  ports:
+  - name: "9200"
+    port: 9200
+    targetPort: 9200
+  - name: "9300"
+    port: 9300
+    targetPort: 9300
+  selector:
+    app: elasticsearch
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: faucetd
+  labels:
+    app: faucetd
+spec:
+  ports:
+  - name: "7781"
+    port: 7781
+    targetPort: 7781
+  selector:
+    app: faucetd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  labels:
+    app: kibana
+spec:
+  type: NodePort
+  ports:
+  - name: "5601"
+    port: 5601
+    targetPort: 5601
+    nodePort: 30001
+  sessionAffinity: ClientIP
+  selector:
+    app: kibana
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kvstore-db
+  labels:
+    app: kvstore-db
+spec:
+  ports:
+  - name: "5435"
+    port: 5435
+    targetPort: 5432
+  selector:
+    app: kvstore-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ledger-db
+  labels:
+    app: ledger-db
+spec:
+  ports:
+  - name: "5433"
+    port: 5433
+    targetPort: 5432
+  selector:
+    app: ledger-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ledger
+  labels:
+    app: ledger
+spec:
+  ports:
+  - name: "7778"
+    port: 7778
+    targetPort: 7778
+  - name: "9091"
+    port: 9091
+    targetPort: 8100
+  selector:
+    app: ledger
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logpiped
+  labels:
+    app: logpiped
+spec:
+  ports:
+  - name: "9005"
+    port: 9005
+    targetPort: 9005
+  selector:
+    app: logpiped
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics
+  labels:
+    app: metrics
+spec:
+  type: NodePort
+  ports:
+  - name: "8000"
+    port: 8000
+    targetPort: 8000
+  - name: "8102"
+    port: 8102
+    targetPort: 8100
+    nodePort: 30102
+  selector:
+    app: metrics
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: publisher-db
+  labels:
+    app: publisher-db
+spec:
+  ports:
+  - name: "5434"
+    port: 5434
+    targetPort: 5432
+  selector:
+    app: publisher-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: publisher
+  labels:
+    app: publisher
+spec:
+  type: NodePort
+  ports:
+  - name: "7070"
+    port: 7070
+    targetPort: 7070
+    nodePort: 30070
+  - name: "8043"
+    port: 8043
+    targetPort: 8043
+  - name: "8100"
+    port: 8100
+    targetPort: 8100
+  selector:
+    app: publisher
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upstream-apache
+  labels:
+    app: upstream-apache
+spec:
+  ports:
+  - name: "8091"
+    port: 8091
+    targetPort: 80
+  selector:
+    app: upstream-apache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upstream-caddy
+  labels:
+    app: upstream-caddy
+spec:
+  ports:
+  - name: "8093"
+    port: 8093
+    targetPort: 80
+  selector:
+    app: upstream-caddy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upstream-lighttpd
+  labels:
+    app: upstream-lighttpd
+spec:
+  ports:
+  - name: "8092"
+    port: 8092
+    targetPort: 80
+  selector:
+    app: upstream-lighttpd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upstream-python
+  labels:
+    app: upstream-python
+spec:
+  ports:
+  - name: "8094"
+    port: 8094
+    targetPort: 80
+  selector:
+    app: upstream-python
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upstream
+  labels:
+    app: upstream
+spec:
+  ports:
+  - name: "8081"
+    port: 8081
+    targetPort: 80
+  selector:
+    app: upstream
