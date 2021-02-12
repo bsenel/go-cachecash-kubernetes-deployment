@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cache
+  labels:
+    app: cache
+spec:
+  selector:
+    matchLabels:
+      app: cache
+  template:
+    metadata:
+      name: cache
+      labels:
+        app: cache
+    spec:
+      nodeName: cache.edge-net.io
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+      containers:
+      - name: cache
+        image: bsenel/go-cachecash:latency-tls
+        imagePullPolicy: IfNotPresent
+        args:
+          - cached
+          - -logLevel
+          - debug
+          - -trace
+          - http://cachecash-collector:14268
+          - -logAddress
+          - logpiped:9005
+        env:
+        - name: CACHECASH_INSECURE
+          value: "false"
+        - name: CACHE_GRPC_ADDR
+          value: ":9000"
+        - name: CACHE_HTTP_ADDR
+          value: ":9443"
+        - name: CACHE_STATUS_ADDR
+          value: ":7100"
+        - name: HOST_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: CACHE_CONTACT_URL
+          value: "http://$(HOST_IP)"
+        - name: CACHE_LEDGER_ADDR
+          value: ledger:7778
+        - name: CACHE_BOOTSTRAP_ADDR
+          value: bootstrapd:7777
+        - name: CACHE_METRICS_ENDPOINT
+          value: metrics:8000
+        volumeMounts:
+        - name: cache-data
+          mountPath: /data
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 9000
+          hostPort: 9000
+        - containerPort: 9443
+          hostPort: 9443
+        - containerPort: 7100
+          hostPort: 7100
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: cache-data
+        hostPath:
+          path: /mnt/cachecash/data/cache
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: cache.edge-net.io
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: cache.edge-net.io
+                csi.cert-manager.io/ip-sans: 164.67.126.40
