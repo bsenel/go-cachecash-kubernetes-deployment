@@ -1,0 +1,908 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blockexplorerd
+  labels:
+    app: blockexplorerd
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: blockexplorerd
+  template:
+    metadata:
+      name: blockexplorerd
+      labels:
+        app: blockexplorerd
+    spec:
+      containers:
+      - name: blockexplorerd
+        image: bsenel/go-cachecash:latency-tls
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+          - mountPath: "/tls"
+            name: tls
+        args:
+          - blockexplorerd
+          - -logLevel
+          - debug
+          - -trace
+          - http://cachecash-collector:14268
+        env:
+        - name: BLOCKEXPLORER_LEDGER_ADDR
+          value: ledger:7778
+        - name: BLOCKEXPLORER_ROOT
+          value: http://blockexplorerd:8080/
+        - name: CACHECASH_INSECURE
+          value: "false"
+        ports:
+        - containerPort: 8080
+        - containerPort: 8100
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+        - name: tls
+          csi:
+            driver: csi.cert-manager.io
+            volumeAttributes:
+                  csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                  csi.cert-manager.io/dns-names: blockexplorerd.default.svc.cluster.local,blockexplorerd
+                  csi.cert-manager.io/certificate-file: server-cert.pem
+                  csi.cert-manager.io/privatekey-file: server-key.pem
+                  csi.cert-manager.io/common-name: blockexplorerd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bootstrapd
+  labels:
+    app: bootstrapd
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bootstrapd
+  template:
+    metadata:
+      name: bootstrapd
+      labels:
+        app: bootstrapd
+    spec:
+      containers:
+      - name: bootstrapd
+        image: bsenel/go-cachecash:latency-tls
+        imagePullPolicy: IfNotPresent
+        args:
+          - bootstrapd
+          - -logLevel
+          - debug
+          - -trace
+          - http://cachecash-collector:14268
+        env:
+        - name: CACHECASH_INSECURE
+          value: "false"
+        volumeMounts:
+        - name: bootstrap-data
+          mountPath: /data
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 7777
+        - containerPort: 8100
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: bootstrap-data
+        hostPath:
+          path: /mnt/cachecash/data/bootstrapd
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: bootstrapd.default.svc.cluster.local,bootstrapd
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: bootstrapd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: faucetd
+  labels:
+    app: faucetd
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: faucetd
+  template:
+    metadata:
+      name: faucetd
+      labels:
+        app: faucetd
+    spec:
+      containers:
+      - name: faucetd
+        image: bsenel/go-cachecash:latency-tls
+        imagePullPolicy: IfNotPresent
+        args:
+          - faucetd
+          - -logLevel
+          - debug
+          - -keypair
+          - /ledger/ledger.keypair.json
+        env:
+        - name: CACHECASH_INSECURE
+          value: "false"
+        - name: FAUCET_LEDGER_ADDR
+          value: ledger:7778
+        volumeMounts:
+        - name: faucet-data
+          mountPath: /data
+        - name: ledger-data
+          mountPath: /ledger
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 7781
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: faucet-data
+        hostPath:
+          path: /mnt/cachecash/data/faucetd
+      - name: ledger-data
+        hostPath:
+          path: /mnt/cachecash/source/data/ledger
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: faucetd.default.svc.cluster.local,faucetd
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: faucetd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kvstore-db
+  labels:
+    app: kvstore-db
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kvstore-db
+  template:
+    metadata:
+      name: kvstore-db
+      labels:
+        app: kvstore-db
+    spec:
+      containers:
+      - name: kvstore-db
+        image: bsenel/postgres:11.10-hugepages-ssl
+        imagePullPolicy: IfNotPresent
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /bin/chown
+              - -R
+              - "999:999"
+              - /var/lib/postgresql/ssl
+        volumeMounts:
+          - mountPath: "/var/lib/postgresql/ssl"
+            name: ssl
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: logpipe
+              key: dbname
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: logpipe
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: logpipe
+              key: password
+        #- name: POSTGRES_HOST_AUTH_METHOD
+          #value: trust
+        ports:
+        - containerPort: 5432
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: ssl
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: kvstore-db.default.svc.cluster.local,kvstore-db
+                csi.cert-manager.io/certificate-file: server.crt
+                csi.cert-manager.io/privatekey-file: server.key
+                csi.cert-manager.io/common-name: kvstore-db
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger-db
+  labels:
+    app: ledger-db
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ledger-db
+  template:
+    metadata:
+      name: ledger-db
+      labels:
+        app: ledger-db
+    spec:
+      containers:
+      - name: ledger-db
+        image: bsenel/postgres:11.10-hugepages-ssl
+        imagePullPolicy: IfNotPresent
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /bin/chown
+              - -R
+              - "999:999"
+              - /var/lib/postgresql/ssl
+        volumeMounts:
+          - mountPath: "/var/lib/postgresql/ssl"
+            name: ssl
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: ledger
+              key: dbname
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: ledger
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ledger
+              key: password
+        #- name: POSTGRES_HOST_AUTH_METHOD
+          #value: trust
+        ports:
+        - containerPort: 5432
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: ssl
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: ledger-db.default.svc.cluster.local,ledger-db
+                csi.cert-manager.io/certificate-file: server.crt
+                csi.cert-manager.io/privatekey-file: server.key
+                csi.cert-manager.io/common-name: ledger-db
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger
+  labels:
+    app: ledger
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ledger
+  template:
+    metadata:
+      name: ledger
+      labels:
+        app: ledger
+    spec:
+      containers:
+      - name: ledger
+        image: bsenel/go-cachecash:latency-tls
+        imagePullPolicy: IfNotPresent
+        args:
+          - ledgerd
+          - -logLevel
+          - debug
+          - -mine-blocks
+          - -mine-interval
+          - "15"
+        env:
+        - name: CACHECASH_INSECURE
+          value: "false"
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: ledger
+              key: dbname
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: ledger
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ledger
+              key: password
+        - name: LEDGER_DATABASE
+          value: "host=ledger-db port=5433 user=$(POSTGRES_USER) password=$(POSTGRES_PASSWORD) dbname=$(POSTGRES_DB) sslmode=verify-ca sslrootcert=/tls/ca.pem"
+        volumeMounts:
+        - name: ledger-data
+          mountPath: /data
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 7778
+        - containerPort: 8100
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: ledger-data
+        hostPath:
+          path: /mnt/cachecash/data/ledger
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: ledger.default.svc.cluster.local,ledger
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: ledger
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logpiped
+  labels:
+    app: logpiped
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: logpiped
+  template:
+    metadata:
+      name: logpiped
+      labels:
+        app: logpiped
+    spec:
+      containers:
+      - name: logpiped
+        image: bsenel/go-cachecash:latency-tls
+        imagePullPolicy: IfNotPresent
+        args:
+          - logpiped
+          - -dsn
+          - host=kvstore-db port=5435 user=$(POSTGRES_USER) password=$(POSTGRES_PASSWORD) dbname=$(POSTGRES_DB) sslmode=verify-ca sslrootcert=/tls/ca.pem
+          - -spooldir
+          - /var/spool/logpiped
+          - -esconfig
+          - /config/esconfig.json
+          - test
+        env:
+        - name: CACHECASH_INSECURE
+          value: "false"
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: logpipe
+              key: dbname
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: logpipe
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: logpipe
+              key: password
+        volumeMounts:
+        - name: logpipe-data
+          mountPath: /data
+        - name: spool-data
+          mountPath: /var/spool/logpiped
+        - name: config-data
+          mountPath: /config
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 9005
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: logpipe-data
+        hostPath:
+          path: /mnt/cachecash/data/logpiped
+      - name: spool-data
+        hostPath:
+          path: /mnt/cachecash/data/logpiped
+      - name: config-data
+        hostPath:
+          path: /mnt/cachecash/source/testdata/config
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: logpiped.default.svc.cluster.local,logpiped
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: logpiped
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics
+  labels:
+    app: metrics
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: metrics
+  template:
+    metadata:
+      name: metrics
+      labels:
+        app: metrics
+    spec:
+      containers:
+      - name: metrics
+        image: bsenel/go-cachecash:latency-tls
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+          - mountPath: "/tls"
+            name: tls
+        args:
+          - metrics-proxy
+          - -logLevel
+          - debug
+          - -trace
+          - http://cachecash-collector:14268
+        env:
+        - name: CACHECASH_INSECURE
+          value: "false"
+        ports:
+        - containerPort: 8000
+        - containerPort: 8100
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: metrics.default.svc.cluster.local,metrics
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: publisher-db
+  labels:
+    app: publisher-db
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: publisher-db
+  template:
+    metadata:
+      name: publisher-db
+      labels:
+        app: publisher-db
+    spec:
+      containers:
+      - name: publisher-db
+        image: bsenel/postgres:11.10-hugepages-ssl
+        imagePullPolicy: IfNotPresent
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /bin/chown
+              - -R
+              - "999:999"
+              - /var/lib/postgresql/ssl
+        volumeMounts:
+          - mountPath: "/var/lib/postgresql/ssl"
+            name: ssl
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: publisher
+              key: dbname
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: publisher
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: publisher
+              key: password
+        #- name: POSTGRES_HOST_AUTH_METHOD
+          #value: trust
+        ports:
+        - containerPort: 5432
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: ssl
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: publisher-db.default.svc.cluster.local,publisher-db
+                csi.cert-manager.io/certificate-file: server.crt
+                csi.cert-manager.io/privatekey-file: server.key
+                csi.cert-manager.io/common-name: publisher-db
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: publisher
+  labels:
+    app: publisher
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: publisher
+  template:
+    metadata:
+      name: publisher
+      labels:
+        app: publisher
+    spec:
+      containers:
+      - name: publisher
+        image: bsenel/go-cachecash:latency-tls
+        imagePullPolicy: IfNotPresent
+        args:
+          - publisherd
+          - -logLevel
+          - debug
+          - -trace
+          - http://cachecash-collector:14268
+        env:
+        - name: CACHECASH_INSECURE
+          value: "false"
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: publisher
+              key: dbname
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: publisher
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: publisher
+              key: password
+        - name: PUBLISHER_DATABASE
+          value: "host=publisher-db port=5434 user=$(POSTGRES_USER) password=$(POSTGRES_PASSWORD) dbname=$(POSTGRES_DB) sslmode=verify-ca sslrootcert=/tls/ca.pem"
+        - name: PUBLISHER_LEDGER_ADDR
+          value: ledger:7778
+        - name: PUBLISHER_BOOTSTRAP_ADDR
+          value: bootstrapd:7777
+        - name: PUBLISHER_ORIGIN
+          value: https://publisher:1234
+        - name: HOST_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: PUBLISHER_PUBLISHER_ADDR
+          value: $(HOST_IP):30070
+        - name: PUBLISHER_UPSTREAM
+          value: http://upstream:8081
+          #${PUBLISHER_UPSTREAM:-https://$(HOST_IP):8081}
+        volumeMounts:
+        - name: publisher-data
+          mountPath: /data
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 7070
+        - containerPort: 8043
+        - containerPort: 8100
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: publisher-data
+        hostPath:
+          path: /mnt/cachecash/data/publisher
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: publisher.default.svc.cluster.local,publisher,lip6-lab.cachecash.edge-net.io,cachecash.planet-lab.eu
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: cachecash.planet-lab.eu
+                csi.cert-manager.io/ip-sans: 132.227.123.51
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upstream-apache
+  labels:
+    app: upstream-apache
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: upstream-apache
+  template:
+    metadata:
+      name: upstream-apache
+      labels:
+        app: upstream-apache
+    spec:
+      containers:
+      - name: upstream-apache
+        image: httpd
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: content-data
+          mountPath: /usr/local/apache2/htdocs
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 80
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: content-data
+        hostPath:
+          path: /mnt/cachecash/source/testdata/content
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: upstream-apache.default.svc.cluster.local,upstream-apache
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: upstream-apache
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upstream-caddy
+  labels:
+    app: upstream-caddy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: upstream-caddy
+  template:
+    metadata:
+      name: upstream-caddy
+      labels:
+        app: upstream-caddy
+    spec:
+      containers:
+      - name: upstream-caddy
+        image: bsenel/go-cachecash_upstream-caddy
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: content-data
+          mountPath: /var/www
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 80
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: content-data
+        hostPath:
+          path: /mnt/cachecash/source/testdata/content
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: upstream-caddy.default.svc.cluster.local,upstream-caddy
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: upstream-caddy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upstream-lighttpd
+  labels:
+    app: upstream-lighttpd
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: upstream-lighttpd
+  template:
+    metadata:
+      name: upstream-lighttpd
+      labels:
+        app: upstream-lighttpd
+    spec:
+      containers:
+      - name: upstream-lighttpd
+        image: bsenel/go-cachecash_upstream-lighttpd
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: content-data
+          mountPath: /var/www/localhost/htdocs
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 80
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: content-data
+        hostPath:
+          path: /mnt/cachecash/source/testdata/content
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: upstream-lighttpd.default.svc.cluster.local,upstream-lighttpd
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: upstream-lighttpd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upstream-python
+  labels:
+    app: upstream-python
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: upstream-python
+  template:
+    metadata:
+      name: upstream-python
+      labels:
+        app: upstream-python
+    spec:
+      containers:
+      - name: upstream-python
+        image: python:3-alpine
+        imagePullPolicy: IfNotPresent
+        args:
+          - python
+          - -m
+          - http.server
+          - -d
+          - /var/www
+          - "80"
+        volumeMounts:
+        - name: content-data
+          mountPath: /var/www
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 80
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: content-data
+        hostPath:
+          path: /mnt/cachecash/source/testdata/content
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: upstream-python.default.svc.cluster.local,upstream-python
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: upstream-python
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upstream
+  labels:
+    app: upstream
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: upstream
+  template:
+    metadata:
+      name: upstream
+      labels:
+        app: upstream
+    spec:
+      containers:
+      - name: upstream
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: content-data
+          mountPath: /usr/share/nginx/html
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 80
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: content-data
+        hostPath:
+          path: /mnt/cachecash/source/testdata/content
+      - name: tls
+        csi:
+          driver: csi.cert-manager.io
+          volumeAttributes:
+                csi.cert-manager.io/issuer-name: ca-issuer-cachecash
+                csi.cert-manager.io/dns-names: upstream.default.svc.cluster.local,upstream
+                csi.cert-manager.io/certificate-file: server-cert.pem
+                csi.cert-manager.io/privatekey-file: server-key.pem
+                csi.cert-manager.io/common-name: upstream
