@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logpipe
+data:
+  esconfig.json: |
+    {
+      "Addresses": [
+        "http://elasticsearch:9200"
+      ],
+      "Username": <put the elastic username here>,
+      "Password": <put the elastic password here>
+    }
