@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: init-config
+  labels:
+    app: config
+spec:
+  selector:
+    matchLabels:
+      app: config
+  template:
+    metadata:
+      labels:
+        app: config
+    spec:
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+      containers:
+      - name: git-lfs
+        image: alpine:3.7
+        command: ["/bin/sh", "-c", "mkdir -p /source/testdata/config && cd /source/testdata/config && touch ./esconfig.json && echo '$(ESCONFIG)' > ./esconfig.json && while true; do sleep 600000; done;"]
+        env:
+        - name: ESCONFIG
+          valueFrom:
+            configMapKeyRef:
+              name: logpipe
+              key: esconfig.json
+        volumeMounts:
+        - name: source-data
+          mountPath: /source
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      restartPolicy: Always
+      volumes:
+      - name: source-data
+        hostPath:
+          path: /mnt/cachecash/source/
