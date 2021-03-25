@@ -1,0 +1,358 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - nodes/metrics
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources:
+  - configmaps
+  verbs: ["get"]
+- nonResourceURLs: ["/metrics", "/metrics/cadvisor", "/metrics/resource", "/metrics/probes"]
+  verbs: ["get"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: authority-edgenet-slice-cachecash
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: authority-edgenet-slice-cachecash
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: authority-edgenet-slice-cachecash
+  labels:
+    k8s-app: prometheus
+data:
+  prometheus.yml: |
+    # my global config
+    global:
+      scrape_interval:     30s # By default, scrape targets every 30 seconds.
+      evaluation_interval: 30s # By default, scrape targets every 30 seconds.
+      # scrape_timeout is set to the global default (10s).
+
+      # Attach these labels to any time series or alerts when communicating with
+      # external systems (federation, remote storage, Alertmanager).
+      external_labels:
+          monitor: 'cachecash'
+
+    # Load and evaluate rules in this file every 'evaluation_interval' seconds.
+    rule_files:
+      - 'alert.rules'
+      # - "first.rules"
+      # - "second.rules"
+
+    # alert
+    alerting:
+      alertmanagers:
+      - scheme: http
+        static_configs:
+        - targets:
+          - "alertmanager:9093"
+
+    # A scrape configuration containing exactly one endpoint to scrape:
+    # Here it's Prometheus itself.
+    scrape_configs:
+      # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+
+      - job_name: 'cadvisor-pods'
+
+        scrape_interval: 90s
+        scrape_timeout: 75s
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+              - 'cadvisor'
+
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+
+      - job_name: 'kubernetes-pods'
+
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+              - 'authority-edgenet-slice-cachecash'
+
+        relabel_configs:
+        # Example relabel to scrape only pods that have
+        # "example.io/should_be_scraped = true" annotation.
+        #  - source_labels: [__meta_kubernetes_pod_annotation_example_io_should_be_scraped]
+        #    action: keep
+        #    regex: true
+        #
+        # Example relabel to customize metric path based on pod
+        # "example.io/metric_path = <metric path>" annotation.
+        #  - source_labels: [__meta_kubernetes_pod_annotation_example_io_metric_path]
+        #    action: replace
+        #    target_label: __metrics_path__
+        #    regex: (.+)
+        #
+        # Example relabel to scrape only single, desired port for the pod
+        # based on pod "example.io/scrape_port = <port>" annotation.
+        #  - source_labels: [__address__, __meta_kubernetes_pod_annotation_example_io_scrape_port]
+        #    action: replace
+        #    regex: ([^:]+)(?::\d+)?;(\d+)
+        #    replacement: $1:$2
+        #    target_label: __address__
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_pod_controller_kind]
+          regex: 'Job'
+          action: drop
+        - source_labels: [__meta_kubernetes_pod_label_k8s_app]
+          regex: 'filebeat'
+          action: drop
+        - source_labels: [__meta_kubernetes_pod_label_app]
+          regex: 'elasticsearch|kibana|config|logpiped|kvstore-db|ledger-db|upstream|upstream-apache|upstream-lighttpd|upstream-caddy|upstream-python|publisher-db|faucetd'
+          action: drop
+        - source_labels: [__meta_kubernetes_pod_container_port_number]
+          regex: '7070|7777|7778|8000|8043|8080|9000|9001|9002|9003|9004|9443|9444|9445|9446|9447|14268|5775|5778|6831|6832|9411'
+          action: drop
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+
+      #- job_name: 'kubernetes-cadvisor'
+
+        # Default to scraping over https. If required, just disable this or change to
+        # `http`.
+        #scheme: https
+
+        # Starting Kubernetes 1.7.3 the cAdvisor metrics are under /metrics/cadvisor.
+        # Kubernetes CIS Benchmark recommends against enabling the insecure HTTP
+        # servers of Kubernetes, therefore the cAdvisor metrics on the secure handler
+        # are used.
+        #metrics_path: /metrics/cadvisor
+
+        # This TLS & bearer token file config is used to connect to the actual scrape
+        # endpoints for cluster components. This is separate to discovery auth
+        # configuration because discovery & scraping are two separate concerns in
+        # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+        # the cluster. Otherwise, more config options have to be provided within the
+        # <kubernetes_sd_config>.
+        #tls_config:
+          #ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          # If your node certificates are self-signed or use a different CA to the
+          # master CA, then disable certificate verification below. Note that
+          # certificate verification is an integral part of a secure infrastructure
+          # so this should only be disabled in a controlled environment. You can
+          # disable certificate verification by uncommenting the line below.
+          #
+          #insecure_skip_verify: true
+        #bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        #kubernetes_sd_configs:
+        #- role: node
+
+        #relabel_configs:
+        #- action: labelmap
+        #  regex: __meta_kubernetes_node_label_(.+)
+
+    #  - job_name: 'node-exporter'
+    #
+    #    # Override the global default and scrape targets from this job every 5 seconds.
+    #    scrape_interval: 5s
+    #
+    #    # dns_sd_configs:
+    #    # - names:
+    #    #     - 'tasks.node-exporter'
+    #    #   type: 'A'
+    #    #   port: 9100
+    #
+    #    static_configs:
+    #      - targets: ['node-exporter:9100']
+
+      - job_name: 'proxiedmetrics'
+
+        # Override the global default and scrape targets from this job every 5 seconds.
+        scrape_interval: 5s
+        metrics_path: /metrics/proxied
+        static_configs:
+        - targets: ['metrics:8102']
+
+      - job_name: 'proxiedmetricsmetrics'
+
+        # Override the global default and scrape targets from this job every 5 seconds.
+        scrape_interval: 5s
+        static_configs:
+        - targets: ['metrics:8102']
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-deployment
+  namespace: authority-edgenet-slice-cachecash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus-cont
+        image: prom/prometheus
+        command:
+        - /bin/prometheus
+        args:
+        - --storage.tsdb.path=/prometheus
+        - --config.file=/etc/prometheus/prometheus.yml
+        volumeMounts:
+        - name: prometheus-storage
+          mountPath: /prometheus
+        - name: config-volume
+          mountPath: /etc/prometheus/prometheus.yml
+          subPath: prometheus.yml
+        ports:
+        - containerPort: 9090
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      volumes:
+      - name: prometheus-storage
+        hostPath:
+          path: /mnt/cachecash/data/prometheus
+      - name: config-volume
+        configMap:
+          name: prometheus-config
+      serviceAccountName: prometheus
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: prometheus-service
+  namespace: authority-edgenet-slice-cachecash
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - name: promui
+    nodePort: 30900
+    protocol: TCP
+    port: 9090
+    targetPort: 9090
+  type: NodePort
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: authority-edgenet-slice-cachecash
+data:
+  prometheus.yaml: |-
+    {
+        "apiVersion": 1,
+        "datasources": [
+            {
+                "access":"proxy",
+                "editable": true,
+                "name": "Prometheus",
+                "orgId": 1,
+                "type": "prometheus",
+                "url": "http://prometheus-service:9090",
+                "version": 1
+            }
+        ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: authority-edgenet-slice-cachecash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      name: grafana
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - name: grafana
+          containerPort: 3000
+        resources:
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+          - mountPath: /var/lib/grafana
+            name: grafana-storage
+          - mountPath: /etc/grafana/provisioning/datasources
+            name: grafana-datasources
+            readOnly: false
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+      volumes:
+        - name: grafana-storage
+          hostPath:
+            path: /mnt/cachecash/data/grafana
+        - name: grafana-datasources
+          configMap:
+              defaultMode: 420
+              name: grafana-datasources
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: authority-edgenet-slice-cachecash
+  annotations:
+      prometheus.io/scrape: 'true'
+      prometheus.io/port:   '3000'
+spec:
+  selector:
+    app: grafana
+  type: NodePort
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 32000
